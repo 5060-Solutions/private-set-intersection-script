@@ -5,9 +5,14 @@ import argparse
 def hash_entry(pseudonym, u_firstname, u_name, u_city, u_state, md_us_phone_1, md_us_phone_2, email):
     phone_hash_1 = hashlib.sha256(md_us_phone_1.encode('utf-8')).hexdigest()
     phone_hash_2 = hashlib.sha256(md_us_phone_2.encode('utf-8')).hexdigest()
-    personal_info_concat = f"{u_city}{u_state}{u_name}{u_firstname[0]}"
+
+    first_letter_firstname = u_firstname[0] if u_firstname else ''
+    surname = u_name
+
+    personal_info_concat = f"{u_city}{u_state}{surname}{first_letter_firstname}"
     personal_info_hash = hashlib.sha256(personal_info_concat.encode('utf-8')).hexdigest()
     email_hash = hashlib.sha256(email.encode('utf-8')).hexdigest()
+
     return [pseudonym, phone_hash_1, phone_hash_2, personal_info_hash, email_hash]
 
 def hash_dataset(input_file, output_file):
