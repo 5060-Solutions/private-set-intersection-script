@@ -2,14 +2,36 @@ import csv
 import hashlib
 import argparse
 
-def hash_entry(pseudonym, u_firstname, u_name, u_city, u_state, md_us_phone_1, md_us_phone_2, email):
+def hash_entry(row):
+    columns = {
+        'pseudonym': ['pseudonym'],
+        'u_firstname': ['u_firstname', 'firstname', 'first_name'],
+        'u_name': ['u_name', 'surname', 'last_name'],
+        'u_city': ['u_city', 'city'],
+        'u_state': ['u_state', 'state'],
+        'md_us_phone_1': ['md_us_phone_1', 'phone1', 'phone_1'],
+        'md_us_phone_2': ['md_us_phone_2', 'phone2', 'phone_2'],
+        'md_us_email': ['md_us_email', 'email']
+    }
+
+    def get_column_value(column_variants):
+        for variant in column_variants:
+            if variant in row:
+                return row[variant]
+        return ''
+
+    pseudonym = get_column_value(columns['pseudonym'])
+    u_firstname = get_column_value(columns['u_firstname'])[0] if get_column_value(columns['u_firstname']) else ''
+    u_name = get_column_value(columns['u_name'])
+    u_city = get_column_value(columns['u_city'])
+    u_state = get_column_value(columns['u_state'])
+    md_us_phone_1 = get_column_value(columns['md_us_phone_1'])
+    md_us_phone_2 = get_column_value(columns['md_us_phone_2'])
+    email = get_column_value(columns['md_us_email'])
+
     phone_hash_1 = hashlib.sha256(md_us_phone_1.encode('utf-8')).hexdigest()
     phone_hash_2 = hashlib.sha256(md_us_phone_2.encode('utf-8')).hexdigest()
-
-    first_letter_firstname = u_firstname[0] if u_firstname else ''
-    surname = u_name
-
-    personal_info_concat = f"{u_city}{u_state}{surname}{first_letter_firstname}"
+    personal_info_concat = f"{u_city}{u_state}{u_name}{u_firstname}"
     personal_info_hash = hashlib.sha256(personal_info_concat.encode('utf-8')).hexdigest()
     email_hash = hashlib.sha256(email.encode('utf-8')).hexdigest()
 
@@ -21,7 +43,7 @@ def hash_dataset(input_file, output_file):
         writer = csv.writer(outfile)
         writer.writerow(['Pseudonym', 'Phone Hash 1', 'Phone Hash 2', 'Personal Info Hash', 'Email Hash'])
         for row in reader:
-            hashed_row = hash_entry(row['pseudonym'], row['u_firstname'], row['u_name'], row['u_city'], row['u_state'], row['md_us_phone_1'], row['md_us_phone_2'], row['md_us_email'])
+            hashed_row = hash_entry(row)
             writer.writerow(hashed_row)
 
 def main():
