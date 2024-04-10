@@ -55,20 +55,21 @@ def normalize_state_province(name):
     return state_province_codes.get(name.title(), name)
 
 def normalize_address(address):
+    if not address:
+        return ""
     address = address.lower().strip()
-    # Strip common secondary address designations
-    address = re.sub(r'\b(?:apartment|apt|suite|ste|unit|fl|floor|#)\s*\w+\b', '', address)
+    address = re.sub(r'^[,.\s]+|[,.\s]+$', '', address)
+    address = re.sub(r'\b(?:apartment|apt|suite|ste|unit|fl|floor|#)\s*[\w-]+\b', '', address)
     substitutions = {
-        'street': 'st', 'st.': 'st', 'avenue': 'ave', 'ave.': 'ave', 'road': 'rd', 'rd.': 'rd',
-        'drive': 'dr', 'dr.': 'dr', 'place': 'pl', 'pl.': 'pl', 'lane': 'ln', 'ln.': 'ln',
-        'highway': 'hwy', 'hwy.': 'hwy', 'court': 'ct', 'ct.': 'ct', 'square': 'sq', 'sq.': 'sq',
-        'loop': 'lp', 'lp.': 'lp', 'trail': 'trl', 'trl.': 'trl', 'parkway': 'pkwy', 'pkwy.': 'pkwy',
-        'commons': 'cmns', 'cmns.': 'cmns', 'north': 'n', 'n.': 'n', 'south': 's', 's.': 's',
-        'east': 'e', 'e.': 'e', 'west': 'w', 'w.': 'w', 'boulevard': 'blvd', 'blvd.': 'blvd',
-        'circle': 'cir', 'cir.': 'cir', 'terrace': 'ter', 'ter.': 'ter'
+        'street': 'st', 'avenue': 'ave', 'road': 'rd', 'drive': 'dr', 'place': 'pl', 
+        'lane': 'ln', 'highway': 'hwy', 'court': 'ct', 'square': 'sq', 'loop': 'lp',
+        'trail': 'trl', 'parkway': 'pkwy', 'commons': 'cmns', 'north': 'n', 'south': 's',
+        'east': 'e', 'west': 'w', 'boulevard': 'blvd', 'circle': 'cir', 'terrace': 'ter'
     }
     for k, v in substitutions.items():
-        address = re.sub(r'\b' + k + r'\b', v, address)
+        address = re.sub(rf'\b{k}\b\.?', v, address)
+    address = re.sub(r'[^\w\s]', '', address)
+    address = re.sub(r'\s+', ' ', address).strip()
     return address
 
 def hash_entry(row):
@@ -101,13 +102,16 @@ def hash_entry(row):
     md_us_phone_2 = standardize_phone_number(get_column_value(columns['md_us_phone_2']), pseudonym, 'md_us_phone_2')
     email = get_column_value(columns['md_us_email'])
 
-    phone_hash_1 = hashlib.sha256(md_us_phone_1.encode('utf-8')).hexdigest()
-    phone_hash_2 = hashlib.sha256(md_us_phone_2.encode('utf-8')).hexdigest()
     personal_info_concat = f"{u_city}{u_state}{u_name}{u_firstname}"
-    personal_info_hash = hashlib.sha256(personal_info_concat.encode('utf-8')).hexdigest()
-    email_hash = hashlib.sha256(email.encode('utf-8')).hexdigest()
 
-    return [pseudonym, phone_hash_1, phone_hash_2, personal_info_hash, email_hash]
+    hashed_row = [pseudonym]
+    for value in [md_us_phone_1, md_us_phone_2, personal_info_concat, email]:
+        if value:
+            hashed_row.append(hashlib.sha256(value.encode('utf-8')).hexdigest())
+        else:
+            hashed_row.append("")
+
+    return hashed_row
 
 def hash_dataset(input_file, output_file):
     global invalid_phone_warnings
@@ -115,7 +119,7 @@ def hash_dataset(input_file, output_file):
         reader = csv.DictReader(csvfile)
         writer = csv.writer(outfile)
         writer.writerow(['Pseudonym', 'Phone Hash 1', 'Phone Hash 2', 'Personal Info Hash', 'Email Hash'])
-        total_rows, skipped_rows = 0, 0
+        total_rows, skipped_rows, hashed_rows = 0, 0, 0
         for row in reader:
             total_rows += 1
             hashed_row = hash_entry(row)
@@ -123,10 +127,15 @@ def hash_dataset(input_file, output_file):
                 skipped_rows += 1
                 continue
             writer.writerow(hashed_row)
+            hashed_rows += 1
+        print(f"Input file: {input_file}")
+        print(f"Output file: {output_file}")
         print(f"Total rows processed: {total_rows}")
+        print(f"Rows hashed and written to output: {hashed_rows}")
         print(f"Rows skipped due to blank pseudonym: {skipped_rows}")
+        print("Phone number processing summary:")
         for key, count in phone_warnings.items():
-            print(f"{key.replace('_', ' ').title()}: {count}")
+            print(f"- {key.replace('_', ' ').title()}: {count}")
 
 def main():
     global debug_mode
