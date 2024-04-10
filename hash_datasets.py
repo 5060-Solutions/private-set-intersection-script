@@ -1,10 +1,56 @@
 import csv
 import hashlib
 import argparse
+import phonenumbers
+import re
+
+def standardize_phone_number(phone):
+    try:
+        parsed_phone = phonenumbers.parse(phone, "US")
+        if phonenumbers.is_valid_number(parsed_phone):
+            return phonenumbers.format_number(parsed_phone, phonenumbers.PhoneNumberFormat.E164)
+    except phonenumbers.NumberParseException:
+        return ""
+
+state_province_codes = {
+    "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR", "California": "CA",
+    "Colorado": "CO", "Connecticut": "CT", "Delaware": "DE", "Florida": "FL", "Georgia": "GA",
+    "Hawaii": "HI", "Idaho": "ID", "Illinois": "IL", "Indiana": "IN", "Iowa": "IA",
+    "Kansas": "KS", "Kentucky": "KY", "Louisiana": "LA", "Maine": "ME", "Maryland": "MD",
+    "Massachusetts": "MA", "Michigan": "MI", "Minnesota": "MN", "Mississippi": "MS", "Missouri": "MO",
+    "Montana": "MT", "Nebraska": "NE", "Nevada": "NV", "New Hampshire": "NH", "New Jersey": "NJ",
+    "New Mexico": "NM", "New York": "NY", "North Carolina": "NC", "North Dakota": "ND", "Ohio": "OH",
+    "Oklahoma": "OK", "Oregon": "OR", "Pennsylvania": "PA", "Rhode Island": "RI", "South Carolina": "SC",
+    "South Dakota": "SD", "Tennessee": "TN", "Texas": "TX", "Utah": "UT", "Vermont": "VT",
+    "Virginia": "VA", "Washington": "WA", "West Virginia": "WV", "Wisconsin": "WI", "Wyoming": "WY",
+    "Ontario": "ON", "Quebec": "QC", "Nova Scotia": "NS", "New Brunswick": "NB",
+    "Manitoba": "MB", "British Columbia": "BC", "Prince Edward Island": "PE", 
+    "Saskatchewan": "SK", "Alberta": "AB", "Newfoundland and Labrador": "NL",
+}
+
+def normalize_state_province(name):
+    return state_province_codes.get(name.title(), name)
+
+def normalize_address(address):
+    address = address.lower().strip()
+    # Strip common secondary address designations
+    address = re.sub(r'\b(?:apartment|apt|suite|ste|unit|fl|floor|#)\s*\w+\b', '', address)
+    substitutions = {
+        'street': 'st', 'st.': 'st', 'avenue': 'ave', 'ave.': 'ave', 'road': 'rd', 'rd.': 'rd',
+        'drive': 'dr', 'dr.': 'dr', 'place': 'pl', 'pl.': 'pl', 'lane': 'ln', 'ln.': 'ln',
+        'highway': 'hwy', 'hwy.': 'hwy', 'court': 'ct', 'ct.': 'ct', 'square': 'sq', 'sq.': 'sq',
+        'loop': 'lp', 'lp.': 'lp', 'trail': 'trl', 'trl.': 'trl', 'parkway': 'pkwy', 'pkwy.': 'pkwy',
+        'commons': 'cmns', 'cmns.': 'cmns', 'north': 'n', 'n.': 'n', 'south': 's', 's.': 's',
+        'east': 'e', 'e.': 'e', 'west': 'w', 'w.': 'w', 'boulevard': 'blvd', 'blvd.': 'blvd',
+        'circle': 'cir', 'cir.': 'cir', 'terrace': 'ter', 'ter.': 'ter'
+    }
+    for k, v in substitutions.items():
+        address = re.sub(r'\b' + k + r'\b', v, address)
+    return address
 
 def hash_entry(row):
     columns = {
-        'pseudonym': ['pseudonym'],
+        'pseudonym': ['pseudonym', 'uniqueid', 'index'],
         'u_firstname': ['u_firstname', 'firstname', 'first_name'],
         'u_name': ['u_name', 'surname', 'last_name'],
         'u_city': ['u_city', 'city'],
@@ -17,16 +63,19 @@ def hash_entry(row):
     def get_column_value(column_variants):
         for variant in column_variants:
             if variant in row:
-                return row[variant]
+                return row[variant].strip().lower()
         return ''
 
     pseudonym = get_column_value(columns['pseudonym'])
+    if not pseudonym:
+        return None
+
     u_firstname = get_column_value(columns['u_firstname'])[0] if get_column_value(columns['u_firstname']) else ''
     u_name = get_column_value(columns['u_name'])
-    u_city = get_column_value(columns['u_city'])
-    u_state = get_column_value(columns['u_state'])
-    md_us_phone_1 = get_column_value(columns['md_us_phone_1'])
-    md_us_phone_2 = get_column_value(columns['md_us_phone_2'])
+    u_city = normalize_address(get_column_value(columns['u_city']))
+    u_state = normalize_state_province(get_column_value(columns['u_state']))
+    md_us_phone_1 = standardize_phone_number(get_column_value(columns['md_us_phone_1']))
+    md_us_phone_2 = standardize_phone_number(get_column_value(columns['md_us_phone_2']))
     email = get_column_value(columns['md_us_email'])
 
     phone_hash_1 = hashlib.sha256(md_us_phone_1.encode('utf-8')).hexdigest()
@@ -38,13 +87,20 @@ def hash_entry(row):
     return [pseudonym, phone_hash_1, phone_hash_2, personal_info_hash, email_hash]
 
 def hash_dataset(input_file, output_file):
-    with open(input_file, newline='') as csvfile, open(output_file, 'w', newline='') as outfile:
+    with open(input_file, newline='', encoding='utf-8-sig') as csvfile, open(output_file, 'w', newline='', encoding='utf-8') as outfile:
         reader = csv.DictReader(csvfile)
         writer = csv.writer(outfile)
         writer.writerow(['Pseudonym', 'Phone Hash 1', 'Phone Hash 2', 'Personal Info Hash', 'Email Hash'])
+        total_rows, skipped_rows = 0, 0
         for row in reader:
+            total_rows += 1
             hashed_row = hash_entry(row)
+            if hashed_row is None:
+                skipped_rows += 1
+                continue
             writer.writerow(hashed_row)
+        print(f"Total rows processed: {total_rows}")
+        print(f"Rows skipped due to blank pseudonym: {skipped_rows}")
 
 def main():
     parser = argparse.ArgumentParser(description='Hash a dataset for privacy-preserving comparison, keeping pseudonyms clear.')
