@@ -4,13 +4,36 @@ import argparse
 import phonenumbers
 import re
 
-def standardize_phone_number(phone):
+debug_mode = False
+phone_warnings = {
+    'md_us_phone_1_blank': 0,
+    'md_us_phone_2_blank': 0,
+    'md_us_phone_1_invalid': 0,
+    'md_us_phone_2_invalid': 0,
+    'md_us_phone_1_success': 0,
+    'md_us_phone_2_success': 0
+}
+
+def debug_print(message):
+    if debug_mode:
+        print(message)
+
+def standardize_phone_number(phone, pseudonym, phone_label):
+    if phone is None or phone.strip() == "":
+        debug_print(f"Warning: Encountered a None or blank phone number for pseudonym '{pseudonym}', treating as empty string.")
+        phone_warnings[f'{phone_label}_blank'] += 1
+        return ""
     try:
         parsed_phone = phonenumbers.parse(phone, "US")
         if phonenumbers.is_valid_number(parsed_phone):
-            return phonenumbers.format_number(parsed_phone, phonenumbers.PhoneNumberFormat.E164)
-    except phonenumbers.NumberParseException:
-        return ""
+            formatted_phone = phonenumbers.format_number(parsed_phone, phonenumbers.PhoneNumberFormat.E164)
+            debug_print(f"Formatted phone number for '{pseudonym}': Original '{phone}' => Formatted '{formatted_phone}'")
+            phone_warnings[f'{phone_label}_success'] += 1
+            return formatted_phone
+    except phonenumbers.NumberParseException as e:
+        phone_warnings[f'{phone_label}_invalid'] += 1
+        debug_print(f"Warning: Failed to parse phone number '{phone}' for pseudonym '{pseudonym}': {e}")
+    return ""
 
 state_province_codes = {
     "Alabama": "AL", "Alaska": "AK", "Arizona": "AZ", "Arkansas": "AR", "California": "CA",
@@ -55,8 +78,8 @@ def hash_entry(row):
         'u_name': ['u_name', 'surname', 'last_name'],
         'u_city': ['u_city', 'city'],
         'u_state': ['u_state', 'state'],
-        'md_us_phone_1': ['md_us_phone_1', 'phone1', 'phone_1'],
-        'md_us_phone_2': ['md_us_phone_2', 'phone2', 'phone_2'],
+        'md_us_phone_1': ['md_us_phone_1', 'phone1', 'phone_1', 'md_us_phone_1_rec'],
+        'md_us_phone_2': ['md_us_phone_2', 'phone2', 'phone_2', 'md_us_phone_2_rec'],
         'md_us_email': ['md_us_email', 'email']
     }
 
@@ -74,8 +97,8 @@ def hash_entry(row):
     u_name = get_column_value(columns['u_name'])
     u_city = normalize_address(get_column_value(columns['u_city']))
     u_state = normalize_state_province(get_column_value(columns['u_state']))
-    md_us_phone_1 = standardize_phone_number(get_column_value(columns['md_us_phone_1']))
-    md_us_phone_2 = standardize_phone_number(get_column_value(columns['md_us_phone_2']))
+    md_us_phone_1 = standardize_phone_number(get_column_value(columns['md_us_phone_1']), pseudonym, 'md_us_phone_1')
+    md_us_phone_2 = standardize_phone_number(get_column_value(columns['md_us_phone_2']), pseudonym, 'md_us_phone_2')
     email = get_column_value(columns['md_us_email'])
 
     phone_hash_1 = hashlib.sha256(md_us_phone_1.encode('utf-8')).hexdigest()
@@ -87,6 +110,7 @@ def hash_entry(row):
     return [pseudonym, phone_hash_1, phone_hash_2, personal_info_hash, email_hash]
 
 def hash_dataset(input_file, output_file):
+    global invalid_phone_warnings
     with open(input_file, newline='', encoding='utf-8-sig') as csvfile, open(output_file, 'w', newline='', encoding='utf-8') as outfile:
         reader = csv.DictReader(csvfile)
         writer = csv.writer(outfile)
@@ -101,12 +125,22 @@ def hash_dataset(input_file, output_file):
             writer.writerow(hashed_row)
         print(f"Total rows processed: {total_rows}")
         print(f"Rows skipped due to blank pseudonym: {skipped_rows}")
+        for key, count in phone_warnings.items():
+            print(f"{key.replace('_', ' ').title()}: {count}")
 
 def main():
+    global debug_mode
     parser = argparse.ArgumentParser(description='Hash a dataset for privacy-preserving comparison, keeping pseudonyms clear.')
     parser.add_argument('--input-file', type=str, required=True, help='Path to the input CSV file')
     parser.add_argument('--output-file', type=str, required=True, help='Path for the output CSV file with hashes')
+    parser.add_argument('--debug', action='store_true', help='Enable debug output')
     args = parser.parse_args()
+
+    debug_mode = args.debug
+
+    global invalid_phone_warnings
+    invalid_phone_warnings = 0
+
     hash_dataset(args.input_file, args.output_file)
 
 if __name__ == "__main__":
